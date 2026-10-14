@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>8-Puzzle Solver — Multiple Search Strategies</title>
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --bg:#f4f6fb; --panel:#ffffff; --panel2:#eef1f8; --text:#1b2236; --muted:#5d6783; --border:#d9deea;
+  --accent:#4f46e5; --accent2:#7c3aed; --accent-soft:#e7e6fd;
+  --tile1:#6366f1; --tile2:#8b5cf6; --tiletext:#ffffff; --cell:#e3e7f2; --cellsel:#fde68a;
+  --good:#15803d; --good-bg:#dcfce7; --bad:#b91c1c; --bad-bg:#fee2e2; --warn:#a16207; --warn-bg:#fef3c7; --info-bg:#e0f2fe; --info:#0369a1;
+  --shadow:0 1px 2px rgba(20,30,60,.06),0 4px 14px rgba(20,30,60,.06);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1220; --panel:#171c2f; --panel2:#1e2540; --text:#e8ebf6; --muted:#9aa4c2; --border:#2b3355;
+    --accent:#818cf8; --accent2:#a78bfa; --accent-soft:#272c57;
+    --tile1:#6366f1; --tile2:#8b5cf6; --cell:#232a47; --cellsel:#854d0e;
+    --good:#4ade80; --good-bg:#14301f; --bad:#f87171; --bad-bg:#3b1618; --warn:#fbbf24; --warn-bg:#3a2d0b; --info-bg:#0c2c40; --info:#7dd3fc;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 4px 14px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1220; --panel:#171c2f; --panel2:#1e2540; --text:#e8ebf6; --muted:#9aa4c2; --border:#2b3355;
+  --accent:#818cf8; --accent2:#a78bfa; --accent-soft:#272c57;
+  --tile1:#6366f1; --tile2:#8b5cf6; --cell:#232a47; --cellsel:#854d0e;
+  --good:#4ade80; --good-bg:#14301f; --bad:#f87171; --bad-bg:#3b1618; --warn:#fbbf24; --warn-bg:#3a2d0b; --info-bg:#0c2c40; --info:#7dd3fc;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 4px 14px rgba(0,0,0,.3);
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;line-height:1.45;font-size:15px}
+.wrap{max-width:1280px;margin:0 auto;padding:18px 16px 40px}
+header h1{margin:0;font-size:1.65rem;letter-spacing:-.01em}
+header p{margin:.25rem 0 0;color:var(--muted)}
+.grid{display:grid;grid-template-columns:300px minmax(320px,1fr) 340px;gap:16px;margin-top:16px;align-items:start}
+@media (max-width:1050px){.grid{grid-template-columns:1fr 1fr}.grid .col-mid{grid-column:1 / -1;order:-1}}
+@media (max-width:700px){.grid{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow);margin-bottom:16px}
+.card h2{margin:0 0 10px;font-size:.95rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+label{display:block;font-size:.82rem;color:var(--muted);margin:10px 0 4px}
+select,input[type=text],input[type=number]{width:100%;padding:8px 10px;border-radius:9px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font:inherit}
+input[type=range]{width:100%;accent-color:var(--accent)}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+button{font:inherit;cursor:pointer;border:1px solid var(--border);background:var(--panel2);color:var(--text);padding:8px 12px;border-radius:9px;font-weight:600}
+button:hover:not(:disabled){border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border-color:transparent}
+button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.chk{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:.88rem;color:var(--text)}
+.chk input{accent-color:var(--accent);width:16px;height:16px}
+.hint{font-size:.78rem;color:var(--muted);margin-top:6px}
+/* board */
+.boardwrap{display:flex;flex-direction:column;align-items:center}
+.board{position:relative;width:min(100%,380px);aspect-ratio:1/1;background:var(--panel2);border-radius:16px;padding:8px;border:1px solid var(--border)}
+.board .inner{position:relative;width:100%;height:100%}
+.cell{position:absolute;width:33.333%;height:33.333%;padding:4px}
+.cell>div{width:100%;height:100%;border-radius:12px;background:var(--cell);cursor:pointer}
+.cell.sel>div{background:var(--cellsel)}
+.tile{position:absolute;width:33.333%;height:33.333%;padding:4px;pointer-events:none;transition:left .25s ease,top .25s ease}
+.tile>div{position:relative;width:100%;height:100%;border-radius:12px;background:linear-gradient(145deg,var(--tile1),var(--tile2));color:var(--tiletext);display:flex;align-items:center;justify-content:center;font-size:clamp(1.8rem,9vw,2.8rem);font-weight:800;box-shadow:0 3px 8px rgba(40,30,120,.35)}
+.tile.ok>div{background:linear-gradient(145deg,#16a34a,#22c55e)}
+.tile .dist{position:absolute;right:7px;bottom:4px;font-size:.78rem;font-weight:700;background:rgba(0,0,0,.28);border-radius:6px;padding:0 6px;display:none}
+.showdist .tile .dist{display:block}
+.statusline{margin-top:12px;text-align:center;min-height:2.6em}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;font-weight:700;font-size:.82rem}
+.b-idle{background:var(--panel2);color:var(--muted)}
+.b-run{background:var(--info-bg);color:var(--info)}
+.b-ok{background:var(--good-bg);color:var(--good)}
+.b-bad{background:var(--bad-bg);color:var(--bad)}
+.b-warn{background:var(--warn-bg);color:var(--warn)}
+.progress{width:min(100%,380px);height:8px;background:var(--panel2);border-radius:99px;overflow:hidden;margin-top:10px}
+.progress>div{height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2))}
+.minis{display:flex;gap:18px;align-items:center;justify-content:center;margin-top:14px;flex-wrap:wrap}
+.mini{display:inline-grid;grid-template-columns:repeat(3,26px);gap:3px}
+.mini span{height:26px;border-radius:6px;background:var(--cell);display:flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:700}
+.mini span.t{background:linear-gradient(145deg,var(--tile1),var(--tile2));color:#fff}
+.mini .cap{grid-column:1/-1;height:auto;background:none;font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.legend{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;font-size:.8rem;color:var(--muted);margin-top:12px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:4px;vertical-align:-1px;margin-right:5px}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;width:min(100%,380px)}
+.fact{background:var(--panel2);border-radius:10px;padding:7px 10px;font-size:.82rem}
+.fact b{display:block;font-size:1rem}
+/* results */
+.kv{display:grid;grid-template-columns:1fr auto;gap:6px 10px;font-size:.92rem}
+.kv span:nth-child(odd){color:var(--muted)}
+.kv span:nth-child(even){font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+.banner{margin-top:10px;padding:10px 12px;border-radius:10px;font-size:.88rem}
+.banner.bad{background:var(--bad-bg);color:var(--bad)}
+.banner.warn{background:var(--warn-bg);color:var(--warn)}
+.banner.ok{background:var(--good-bg);color:var(--good)}
+.banner.info{background:var(--info-bg);color:var(--info)}
+.banner b.big{display:block;font-size:1.05rem;letter-spacing:.02em}
+.moves{display:flex;flex-wrap:wrap;gap:4px;max-height:130px;overflow:auto;margin-top:6px}
+.mv{font-size:.78rem;font-weight:700;padding:2px 7px;border-radius:7px;background:var(--panel2);color:var(--muted)}
+.mv.cur{background:var(--accent);color:#fff}
+.mv.past{background:var(--accent-soft);color:var(--accent)}
+.info p{margin:.35rem 0;font-size:.88rem}
+.pill{display:inline-block;font-size:.75rem;font-weight:700;padding:2px 8px;border-radius:99px;background:var(--accent-soft);color:var(--accent);margin-right:6px}
+/* tables */
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.88rem;min-width:620px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.04em}
+td.st{text-align:left}
+tr.best td{background:var(--good-bg)}
+.star{color:var(--warn);font-weight:800}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:900px){.two{grid-template-columns:1fr}}
+svg text{fill:var(--muted);font-size:10px;font-family:inherit}
+.small{font-size:.82rem;color:var(--muted)}
+footer{margin-top:10px;font-size:.8rem;color:var(--muted);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>8-Puzzle Solver <span style="color:var(--muted);font-weight:500;font-size:1rem">— multiple search strategies</span></h1>
+  <p>BFS, DFS, UCS, IDDFS, Greedy Best-First and A* running on the same puzzle. All algorithms execute in your browser; the animation replays the real order in which nodes were expanded, then slides the tiles along the solution.</p>
+</header>
+
+<div class="grid">
+  <!-- LEFT: controls -->
+  <div class="col-left">
+    <div class="card">
+      <h2>Puzzle</h2>
+      <label for="puzzleSel">Built-in puzzle</label>
+      <select id="puzzleSel"></select>
+      <label for="stateIn">Start state (row by row, 0 = blank)</label>
+      <div class="btns" style="margin-top:0"><input id="stateIn" type="text" maxlength="9" inputmode="numeric" placeholder="e.g. 123746058" style="flex:1;min-width:0"><button id="applyBtn">Apply</button></div>
+      <div class="btns">
+        <button id="shuffleBtn" title="Apply random legal moves to the current state">Shuffle</button>
+        <button id="randSolBtn" title="Random puzzle that can be solved">Random solvable</button>
+        <button id="randAnyBtn" title="Any permutation, may be unsolvable">Random (any)</button>
+        <button id="resetPuzBtn">Reset puzzle</button>
+      </div>
+      <label>Board mode</label>
+      <div class="row2">
+        <button id="modePlay" class="on">Play (slide)</button>
+        <button id="modeEdit">Edit (swap)</button>
+      </div>
+      <div class="hint" id="modeHint">Click a tile next to the blank to slide it.</div>
+    </div>
+
+    <div class="card">
+      <h2>Search</h2>
+      <label for="algoSel">Algorithm</label>
+      <select id="algoSel"></select>
+      <div id="heurBox">
+        <label for="heurSel">Heuristic h(n)</label>
+        <select id="heurSel">
+          <option value="manhattan">Manhattan distance</option>
+          <option value="misplaced">Misplaced tiles</option>
+        </select>
+      </div>
+      <div id="depthBox">
+        <label for="depthIn">DFS depth limit</label>
+        <input id="depthIn" type="number" min="5" max="60" value="30">
+      </div>
+      <label for="speed">Animation speed: <b id="speedVal">5</b></label>
+      <input id="speed" type="range" min="1" max="10" value="5">
+      <label class="chk"><input id="overlay" type="checkbox"> Show Manhattan distance on tiles</label>
+      <div class="btns">
+        <button id="solveBtn" class="primary">▶ Solve</button>
+        <button id="pauseBtn" disabled>⏸ Pause</button>
+        <button id="resetBtn">↺ Reset</button>
+      </div>
+      <div class="btns"><button id="cmpBtn" style="flex:1">Compare all algorithms</button></div>
+    </div>
+  </div>
+
+  <!-- CENTRE: board -->
+  <div class="col-mid">
+    <div class="card boardwrap" id="boardCard">
+      <div class="board" id="board"><div class="inner" id="inner"></div></div>
+      <div class="progress" id="progWrap"><div id="prog"></div></div>
+      <div class="statusline" id="statusLine"></div>
+      <div class="minis">
+        <div class="mini" id="miniCur"></div>
+        <div class="mini" id="miniGoal"></div>
+      </div>
+      <div class="facts">
+        <div class="fact">Inversions<b id="fInv">–</b></div>
+        <div class="fact">Solvable?<b id="fSolv">–</b></div>
+        <div class="fact">h(n) Manhattan<b id="fMan">–</b></div>
+        <div class="fact">h(n) Misplaced<b id="fMis">–</b></div>
+      </div>
+      <div class="legend"><span><i style="background:linear-gradient(145deg,var(--tile1),var(--tile2))"></i>Tile</span><span><i style="background:#22c55e"></i>Tile in goal position</span><span><i style="background:var(--cell)"></i>Blank / empty</span></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: results -->
+  <div class="col-right">
+    <div class="card" id="resCard">
+      <h2>Results</h2>
+      <div class="kv" id="kv"></div>
+      <div id="resBanner"></div>
+    </div>
+    <div class="card">
+      <h2>Solution moves</h2>
+      <div class="small" id="movesNote">Run a search to see the moves of the blank tile.</div>
+      <div class="moves" id="moves"></div>
+    </div>
+    <div class="card info" id="algoInfo"></div>
+  </div>
+</div>
+
+<div class="two">
+  <div class="card">
+    <h2>Nodes expanded per depth (last run)</h2>
+    <div id="hist" class="small">Run a search to see the distribution.</div>
+  </div>
+  <div class="card">
+    <h2>Problem formulation</h2>
+    <div class="scroll"><table style="min-width:0">
+      <tr><th>Component</th><th style="text-align:left">In this application</th></tr>
+      <tr><td>State</td><td class="st" style="white-space:normal">An arrangement of tiles 1–8 and the blank on the 3 × 3 board (9!/2 = 181,440 reachable states).</td></tr>
+      <tr><td>Initial state</td><td class="st" style="white-space:normal">The start board chosen by the user.</td></tr>
+      <tr><td>Actions</td><td class="st" style="white-space:normal">Move the blank Up, Right, Down or Left, if it stays on the board.</td></tr>
+      <tr><td>Goal test</td><td class="st" style="white-space:normal">Board equals 1 2 3 / 4 5 6 / 7 8 _ .</td></tr>
+      <tr><td>Path cost</td><td class="st" style="white-space:normal">Each move costs 1.</td></tr>
+    </table></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Algorithm comparison</h2>
+  <div id="cmpNote" class="small">Press “Compare all algorithms” to run every strategy on the current start state. Values come directly from the implemented algorithms.</div>
+  <div class="scroll" id="cmpWrap"></div>
+</div>
+<footer>Educational project · Artificial Intelligence (PBL) · No data is stored or sent anywhere.</footer>
+</div>
+
+<script>
+// ===== 8-Puzzle search algorithms (pure functions, no UI) =====
+const GOAL = "123456780";
+const ROWS = 3, COLS = 3;
+const MAX_EXPANSIONS = 2000000;   // safety budget for DFS and IDDFS (keeps the browser responsive)
+
+// ---- successor function (memoised; order of actions is fixed: Up, Right, Down, Left) ----
+const NB_CACHE = new Map();
+function neighbors(s) {
+  let r = NB_CACHE.get(s);
+  if (r) return r;
+  const z = s.indexOf("0"), row = (z / 3) | 0, col = z % 3;
+  r = [];
+  const mk = (j, move) => {
+    const a = s.split("");
+    a[z] = a[j]; a[j] = "0";
+    r.push({ s: a.join(""), move });
+  };
+  if (row > 0) mk(z - 3, "Up");
+  if (col < 2) mk(z + 1, "Right");
+  if (row < 2) mk(z + 3, "Down");
+  if (col > 0) mk(z - 1, "Left");
+  NB_CACHE.set(s, r);
+  return r;
+}
+
+// ---- heuristics ----
+function misplaced(s) {
+  let n = 0;
+  for (let i = 0; i < 9; i++) if (s[i] !== "0" && s[i] !== GOAL[i]) n++;
+  return n;
+}
+function tileManhattan(s, i) {
+  const t = +s[i];
+  if (t === 0) return 0;
+  const g = t - 1;
+  return Math.abs(((i / 3) | 0) - ((g / 3) | 0)) + Math.abs((i % 3) - (g % 3));
+}
+function manhattan(s) {
+  let n = 0;
+  for (let i = 0; i < 9; i++) n += tileManhattan(s, i);
+  return n;
+}
+const HEURISTICS = { manhattan, misplaced };
+
+// ---- validity and solvability ----
+function validate(s) {
+  const e = [];
+  if (typeof s !== "string" || s.length !== 9) { e.push("State must contain exactly 9 cells."); return e; }
+  const seen = new Set(s.split(""));
+  if (seen.size !== 9 || [...seen].some(ch => ch < "0" || ch > "8"))
+    e.push("State must contain each of the digits 0 to 8 exactly once.");
+  return e;
+}
+function inversions(s) {
+  const a = s.split("").filter(c => c !== "0").map(Number);
+  let inv = 0;
+  for (let i = 0; i < a.length; i++) for (let j = i + 1; j < a.length; j++) if (a[i] > a[j]) inv++;
+  return inv;
+}
+function isSolvable(s) { return inversions(s) % 2 === 0; }
+
+// ---- binary min-heap (ties broken by insertion order, so results are deterministic) ----
+class Heap {
+  constructor() { this.a = []; this.c = 0; }
+  get size() { return this.a.length; }
+  less(x, y) { return x.k < y.k || (x.k === y.k && x.c < y.c); }
+  push(k, node) {
+    const a = this.a; a.push({ k, c: this.c++, node });
+    let i = a.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (this.less(a[i], a[p])) { [a[i], a[p]] = [a[p], a[i]]; i = p; } else break;
+    }
+  }
+  pop() {
+    const a = this.a, top = a[0], last = a.pop();
+    if (a.length) {
+      a[0] = last; let i = 0;
+      for (;;) {
+        let l = 2 * i + 1, r = l + 1, m = i;
+        if (l < a.length && this.less(a[l], a[m])) m = l;
+        if (r < a.length && this.less(a[r], a[m])) m = r;
+        if (m === i) break;
+        [a[i], a[m]] = [a[m], a[i]]; i = m;
+      }
+    }
+    return top.node;
+  }
+}
+
+// ---- common result builder ----
+function newStats() {
+  return { visitedOrder: [], depths: [], frontierSizes: [], generated: 1, maxFrontier: 1 };
+}
+function finish(id, label, goalNode, st, t0, extra) {
+  const path = [], moves = [];
+  if (goalNode) {
+    for (let n = goalNode; n; n = n.p) { path.push(n.s); if (n.p) moves.push(n.move); }
+    path.reverse(); moves.reverse();
+  }
+  const found = !!goalNode;
+  return Object.assign({
+    algorithm: id, label, found, path, moves,
+    visitedOrder: st.visitedOrder, depths: st.depths, frontierSizes: st.frontierSizes,
+    nodesExpanded: st.visitedOrder.length, nodesGenerated: st.generated, maxFrontier: st.maxFrontier,
+    pathLength: found ? moves.length : 0, timeMs: performance.now() - t0,
+    status: found ? "SOLVED" : "NO SOLUTION"
+  }, extra || {});
+}
+function record(st, node, frontierSize) {
+  st.visitedOrder.push(node.s); st.depths.push(node.d); st.frontierSizes.push(frontierSize);
+}
+
+// ---- BFS: FIFO queue ----
+function bfs(start) {
+  const t0 = performance.now(), st = newStats();
+  const root = { s: start, p: null, d: 0, move: null };
+  const seen = new Set([start]), q = [root]; let qi = 0, goal = null;
+  while (qi < q.length) {
+    const n = q[qi++]; record(st, n, q.length - qi + 1);
+    if (n.s === GOAL) { goal = n; break; }
+    for (const x of neighbors(n.s)) {
+      if (seen.has(x.s)) continue;
+      seen.add(x.s); q.push({ s: x.s, p: n, d: n.d + 1, move: x.move }); st.generated++;
+      st.maxFrontier = Math.max(st.maxFrontier, q.length - qi);
+    }
+  }
+  return finish("bfs", "BFS", goal, st, t0);
+}
+
+// ---- depth-limited DFS: LIFO stack (graph search, a state is re-expanded only if reached at smaller depth) ----
+function dfs(start, opts) {
+  const limit = (opts && opts.depthLimit) || 30;
+  const t0 = performance.now(), st = newStats();
+  const stack = [{ s: start, p: null, d: 0, move: null }], done = new Map();
+  let goal = null, cutoff = false, budget = false;
+  while (stack.length) {
+    const n = stack.pop();
+    if (done.has(n.s) && done.get(n.s) <= n.d) continue;
+    done.set(n.s, n.d); record(st, n, stack.length + 1);
+    if (n.s === GOAL) { goal = n; break; }
+    if (st.visitedOrder.length >= MAX_EXPANSIONS) { budget = true; break; }
+    if (n.d >= limit) { cutoff = true; continue; }
+    const nb = neighbors(n.s);
+    for (let i = nb.length - 1; i >= 0; i--) {          // reversed, so that Up is tried first
+      const x = nb[i];
+      if (done.has(x.s) && done.get(x.s) <= n.d + 1) continue;
+      stack.push({ s: x.s, p: n, d: n.d + 1, move: x.move }); st.generated++;
+    }
+    st.maxFrontier = Math.max(st.maxFrontier, stack.length);
+  }
+  const r = finish("dfs", "DFS", goal, st, t0, { depthLimit: limit });
+  if (!goal && budget) { r.status = "NODE LIMIT REACHED"; r.limitHit = true; }
+  else if (!goal && cutoff) { r.status = "NOT FOUND WITHIN DEPTH LIMIT"; r.limitHit = true; }
+  return r;
+}
+
+// ---- UCS: priority queue on g(n) ----
+function ucs(start) {
+  const t0 = performance.now(), st = newStats(), h = new Heap();
+  const root = { s: start, p: null, d: 0, g: 0, move: null };
+  h.push(0, root); const best = new Map([[start, 0]]), closed = new Set(); let goal = null;
+  while (h.size) {
+    const n = h.pop(); if (closed.has(n.s)) continue;
+    closed.add(n.s); record(st, n, h.size + 1);
+    if (n.s === GOAL) { goal = n; break; }
+    for (const x of neighbors(n.s)) {
+      const g = n.g + 1;
+      if (closed.has(x.s) || (best.has(x.s) && best.get(x.s) <= g)) continue;
+      best.set(x.s, g); h.push(g, { s: x.s, p: n, d: n.d + 1, g, move: x.move }); st.generated++;
+    }
+    st.maxFrontier = Math.max(st.maxFrontier, h.size);
+  }
+  return finish("ucs", "UCS", goal, st, t0);
+}
+
+// ---- IDDFS: repeated depth-limited DFS with growing limit ----
+function iddfs(start) {
+  const t0 = performance.now(), st = newStats();
+  let goal = null, iterations = 0, budget = false;
+  for (let limit = 0; limit <= 40 && !goal && !budget; limit++) {
+    iterations++;
+    const stack = [{ s: start, p: null, d: 0, move: null }], done = new Map(); let cutoff = false;
+    while (stack.length) {
+      const n = stack.pop();
+      if (done.has(n.s) && done.get(n.s) <= n.d) continue;
+      done.set(n.s, n.d); record(st, n, stack.length + 1);
+      if (n.s === GOAL) { goal = n; break; }
+      if (st.visitedOrder.length >= MAX_EXPANSIONS) { budget = true; break; }
+      if (n.d >= limit) { cutoff = true; continue; }
+      const nb = neighbors(n.s);
+      for (let i = nb.length - 1; i >= 0; i--) {
+        const x = nb[i];
+        if (done.has(x.s) && done.get(x.s) <= n.d + 1) continue;
+        stack.push({ s: x.s, p: n, d: n.d + 1, move: x.move }); st.generated++;
+      }
+      st.maxFrontier = Math.max(st.maxFrontier, stack.length);
+    }
+    if (!goal && !budget && !cutoff) break;    // whole reachable space searched: no solution
+  }
+  const r = finish("iddfs", "IDDFS", goal, st, t0, { iterations });
+  if (!goal && budget) { r.status = "NODE LIMIT REACHED"; r.limitHit = true; }
+  return r;
+}
+
+// ---- Greedy best-first: priority queue on h(n) ----
+function greedy(start, opts) {
+  const hname = (opts && opts.heuristic) || "manhattan", H = HEURISTICS[hname];
+  const t0 = performance.now(), st = newStats(), hp = new Heap();
+  hp.push(H(start), { s: start, p: null, d: 0, move: null });
+  const seen = new Set([start]); let goal = null;
+  while (hp.size) {
+    const n = hp.pop(); record(st, n, hp.size + 1);
+    if (n.s === GOAL) { goal = n; break; }
+    for (const x of neighbors(n.s)) {
+      if (seen.has(x.s)) continue;
+      seen.add(x.s); hp.push(H(x.s), { s: x.s, p: n, d: n.d + 1, move: x.move }); st.generated++;
+    }
+    st.maxFrontier = Math.max(st.maxFrontier, hp.size);
+  }
+  return finish("greedy", "Greedy", goal, st, t0, { heuristic: hname });
+}
+
+// ---- A*: priority queue on f(n) = g(n) + h(n) ----
+function astar(start, opts) {
+  const hname = (opts && opts.heuristic) || "manhattan", H = HEURISTICS[hname];
+  const t0 = performance.now(), st = newStats(), hp = new Heap();
+  hp.push(H(start), { s: start, p: null, d: 0, g: 0, move: null });
+  const best = new Map([[start, 0]]), closed = new Set(); let goal = null;
+  while (hp.size) {
+    const n = hp.pop(); if (closed.has(n.s)) continue;
+    closed.add(n.s); record(st, n, hp.size + 1);
+    if (n.s === GOAL) { goal = n; break; }
+    for (const x of neighbors(n.s)) {
+      const g = n.g + 1;
+      if (closed.has(x.s) || (best.has(x.s) && best.get(x.s) <= g)) continue;
+      best.set(x.s, g); hp.push(g + H(x.s), { s: x.s, p: n, d: n.d + 1, g, move: x.move }); st.generated++;
+    }
+    st.maxFrontier = Math.max(st.maxFrontier, hp.size);
+  }
+  return finish("astar", "A*", goal, st, t0, { heuristic: hname });
+}
+
+// ---- registry ----
+const ALGORITHMS = {
+  bfs:    { label: "Breadth-First Search (BFS)", short: "BFS", fn: bfs, informed: false },
+  dfs:    { label: "Depth-First Search (DFS)", short: "DFS", fn: dfs, informed: false },
+  ucs:    { label: "Uniform Cost Search (UCS)", short: "UCS", fn: ucs, informed: false },
+  iddfs:  { label: "Iterative Deepening DFS (IDDFS)", short: "IDDFS", fn: iddfs, informed: false },
+  greedy: { label: "Greedy Best-First Search", short: "Greedy", fn: greedy, informed: true },
+  astar:  { label: "A* Search", short: "A*", fn: astar, informed: true }
+};
+
+// ---- built-in puzzles ----
+const PUZZLES = [
+  { id: "easy",   name: "1 Easy",       state: "123746058" },
+  { id: "medium", name: "2 Medium",     state: "530124786" },
+  { id: "hard",   name: "3 Hard",       state: "265108743" },
+  { id: "expert", name: "4 Expert",     state: "862753041" },
+  { id: "worst",  name: "5 Worst Case", state: "867254301" },
+  { id: "solved", name: "6 Already Solved", state: "123456780" },
+  { id: "nosol",  name: "7 No Solution", state: "123456870" }
+];
+
+if (typeof module !== "undefined") module.exports = { MAX_EXPANSIONS, GOAL, neighbors, misplaced, manhattan, tileManhattan, validate, inversions, isSolvable, ALGORITHMS, PUZZLES, bfs, dfs, ucs, iddfs, greedy, astar, HEURISTICS };
+
+</script>
+<script>
+(function(){
+"use strict";
+const $ = id => document.getElementById(id);
+const ARROW = { Up:"↑", Right:"→", Down:"↓", Left:"←" };
+
+const INFO = {
+  bfs:{ds:"FIFO queue",rule:"Expands the shallowest node first.",complete:"Yes",optimal:"Yes (unit step cost)",cx:"Time O(b^d), space O(b^d)",note:"Finds a shortest solution but must keep a very large frontier."},
+  dfs:{ds:"LIFO stack",rule:"Expands the deepest node first (depth-limited here).",complete:"Only within the depth limit",optimal:"No",cx:"Time O(b^m), space O(b·m)",note:"Uses little memory but returns long, non-optimal solutions and may miss deep ones."},
+  ucs:{ds:"Priority queue on g(n)",rule:"Expands the node with the lowest path cost.",complete:"Yes",optimal:"Yes",cx:"Time O(b^(1+⌊C*/ε⌋))",note:"With every move costing 1 it behaves exactly like BFS."},
+  iddfs:{ds:"Stack, repeated with growing depth limit",rule:"Runs depth-limited DFS with limit 0, 1, 2, …",complete:"Yes",optimal:"Yes (unit step cost)",cx:"Time O(b^d), space O(b·d)",note:"Small frontier like DFS and optimal like BFS, but shallow levels are searched again and again."},
+  greedy:{ds:"Priority queue on h(n)",rule:"Expands the node that looks closest to the goal.",complete:"Yes (closed set, finite space)",optimal:"No",cx:"Time O(b^m), space O(b^m)",note:"Very few expansions, but the solution can be much longer than the shortest one."},
+  astar:{ds:"Priority queue on f(n) = g(n) + h(n)",rule:"Expands the node with the lowest estimated total cost.",complete:"Yes",optimal:"Yes (admissible, consistent h)",cx:"Time O(b^d) worst case",note:"Both Manhattan distance and misplaced tiles are admissible; Manhattan is more informed so it expands fewer nodes."}
+};
+
+const S = {
+  puzzleId:"easy", start:PUZZLES[0].state, view:PUZZLES[0].state,
+  algo:"astar", heur:"manhattan", depthLimit:30, speed:5, mode:"play", overlay:false,
+  phase:"idle", result:null, step:0, pathIdx:0, selCell:-1, running:false, computing:false, timer:null, cmp:null, cmpBusy:false, msg:""
+};
+
+/* ---------- build static UI ---------- */
+PUZZLES.forEach(p => { const o=document.createElement("option"); o.value=p.id; o.textContent=p.name; $("puzzleSel").appendChild(o); });
+{ const o=document.createElement("option"); o.value="custom"; o.textContent="Custom"; $("puzzleSel").appendChild(o); }
+Object.keys(ALGORITHMS).forEach(k => { const o=document.createElement("option"); o.value=k; o.textContent=ALGORITHMS[k].label; $("algoSel").appendChild(o); });
+$("algoSel").value = S.algo;
+
+const inner = $("inner"), cells = [], tiles = {};
+for(let i=0;i<9;i++){
+  const c=document.createElement("div"); c.className="cell"; c.style.left=(i%3)*33.333+"%"; c.style.top=((i/3)|0)*33.333+"%";
+  c.innerHTML="<div></div>"; c.addEventListener("click",()=>onCell(i)); inner.appendChild(c); cells.push(c);
+}
+for(let t=1;t<=8;t++){
+  const e=document.createElement("div"); e.className="tile"; e.innerHTML='<div>'+t+'<span class="dist"></span></div>'; inner.appendChild(e); tiles[t]=e;
+}
+function miniHTML(state, cap){
+  let h='<span class="cap">'+cap+'</span>';
+  for(let i=0;i<9;i++){ const d=state[i]; h+= d==="0" ? '<span></span>' : '<span class="t">'+d+'</span>'; }
+  return h;
+}
+
+/* ---------- helpers ---------- */
+function fmt(n){ return n.toLocaleString("en-US"); }
+function ms(x){ return x<10 ? x.toFixed(2)+" ms" : x<1000 ? x.toFixed(1)+" ms" : (x/1000).toFixed(2)+" s"; }
+function setPuzzleFromState(state, id){
+  S.start=state; S.view=state; S.puzzleId=id; clearRun(); S.cmp=null; $("puzzleSel").value=id;
+}
+function clearRun(){
+  clearTimeout(S.timer); S.timer=null; S.running=false; S.phase="idle"; S.result=null; S.step=0; S.pathIdx=0; S.msg=""; S.view=S.start;
+}
+
+/* ---------- rendering ---------- */
+function placeTiles(state, dur){
+  const goalOK = state;
+  for(let t=1;t<=8;t++) tiles[t].style.transitionDuration = dur+"s";
+  for(let i=0;i<9;i++){
+    const d=+state[i]; if(!d) continue;
+    const e=tiles[d]; e.style.left=(i%3)*33.333+"%"; e.style.top=((i/3)|0)*33.333+"%";
+    e.classList.toggle("ok", GOAL[i]===state[i]);
+    e.querySelector(".dist").textContent = tileManhattan(state,i);
+  }
+}
+function renderBoard(){
+  const dur = S.phase==="playing" ? Math.max(.06, Math.min(.3, .9/(S.speed*1.2))) : .22;
+  placeTiles(S.view, dur);
+  cells.forEach((c,i)=>c.classList.toggle("sel", S.selCell===i));
+  inner.parentElement.parentElement.classList.toggle("showdist", S.overlay);
+  $("board").classList.toggle("showdist", S.overlay);
+  $("miniGoal").innerHTML = miniHTML(GOAL,"Goal");
+}
+function renderFacts(){
+  const s=S.start, v=validate(s).length===0;
+  if(!v){ ["fInv","fSolv","fMan","fMis"].forEach(i=>$(i).textContent="–"); return; }
+  const inv=inversions(s); $("fInv").textContent=inv+(inv%2===0?" (even)":" (odd)");
+  $("fSolv").textContent=isSolvable(s)?"Yes":"No"; $("fSolv").style.color=isSolvable(s)?"var(--good)":"var(--bad)";
+  $("fMan").textContent=manhattan(s); $("fMis").textContent=misplaced(s);
+}
+function badge(){
+  const r=S.result;
+  if(S.computing) return '<span class="badge b-run">Computing…</span>';
+  if(S.phase==="idle") return '<span class="badge b-idle">Ready</span>';
+  if(S.phase==="searching") return '<span class="badge b-run">Replaying the search…</span>';
+  if(S.phase==="playing") return '<span class="badge b-run">Sliding along the solution…</span>';
+  if(S.phase==="paused") return '<span class="badge b-warn">Paused</span>';
+  if(S.phase==="done" && r){
+    if(r.found) return '<span class="badge b-ok">SOLVED</span>';
+    if(r.limitHit) return '<span class="badge b-warn">'+r.status+'</span>';
+    return '<span class="badge b-bad">NO SOLUTION</span>';
+  }
+  return "";
+}
+function renderStatus(){
+  let h=badge();
+  if(S.msg) h+='<div class="small" style="margin-top:6px;color:var(--bad)">'+S.msg+'</div>';
+  $("statusLine").innerHTML=h;
+}
+function renderResults(){
+  const r=S.result, a=ALGORITHMS[S.algo];
+  const live = (S.phase==="searching"||S.computing) && r;
+  let exp = "–", gen="–", mf="–", len="–", tm="–", st="–";
+  if(r){
+    const showFull = S.phase==="done" || S.phase==="playing" || S.phase==="paused" && S.step>=r.visitedOrder.length;
+    exp = fmt(showFull ? r.nodesExpanded : S.step);
+    gen = showFull ? fmt(r.nodesGenerated) : "…";
+    mf  = showFull ? fmt(r.maxFrontier) : "…";
+    len = showFull ? (r.found ? r.pathLength+" moves" : "N/A") : "…";
+    tm  = showFull ? ms(r.timeMs) : "…";
+    st  = showFull ? (r.found ? "SOLVED" : r.status) : "SEARCHING";
+  }
+  const hn = a.informed ? (S.heur==="manhattan"?"Manhattan distance":"Misplaced tiles") : "none (uninformed)";
+  $("kv").innerHTML =
+    "<span>Algorithm</span><span>"+a.short+(S.algo==="dfs"?" (limit "+S.depthLimit+")":"")+"</span>"+
+    "<span>Heuristic</span><span>"+hn+"</span>"+
+    "<span>Status</span><span>"+st+"</span>"+
+    "<span>Nodes expanded</span><span>"+exp+"</span>"+
+    "<span>Nodes generated</span><span>"+gen+"</span>"+
+    "<span>Max frontier size</span><span>"+mf+"</span>"+
+    "<span>Solution length</span><span>"+len+"</span>"+
+    "<span>Execution time</span><span>"+tm+"</span>";
+  let b="";
+  const fin = r && (S.phase==="done");
+  if(fin && !r.found && !r.limitHit){
+    const inv=inversions(S.start);
+    b='<div class="banner bad"><b class="big">NO SOLUTION FOUND</b>All '+fmt(r.nodesExpanded)+' reachable states were expanded and the goal was not among them. The start state has '+inv+(inv===1?' inversion (':' inversions (')+(inv%2?"odd":"even")+'); only states with an even number of inversions can reach the goal.</div>';
+  } else if(fin && r.limitHit){
+    b='<div class="banner warn"><b class="big">'+r.status+'</b>'+(r.status==="NODE LIMIT REACHED"
+      ? 'The search was stopped after '+fmt(r.nodesExpanded)+' expansions (safety limit). This does not prove that no solution exists.'
+      : 'No solution was found within the depth limit of '+r.depthLimit+'. Increase the limit and run again.')+'</div>';
+  } else if(fin && r.found){
+    b='<div class="banner ok"><b class="big">Goal reached in '+r.pathLength+' moves</b>'+(r.pathLength===0?"The start state is already the goal.":"Solution cost = "+r.pathLength+" (each move costs 1).")+'</div>';
+  }
+  $("resBanner").innerHTML=b;
+}
+function renderMoves(){
+  const r=S.result, box=$("moves");
+  if(!r||!r.found||S.phase==="searching"||S.computing){ box.innerHTML=""; $("movesNote").textContent = r && !r.found && S.phase==="done" ? "No solution, so there are no moves to show." : "Run a search to see the moves of the blank tile."; return; }
+  $("movesNote").textContent = r.moves.length ? "Direction in which the blank moves ("+r.moves.length+" moves)." : "No moves needed.";
+  let h=""; const LIM=400;
+  r.moves.slice(0,LIM).forEach((m,i)=>{ h+='<span class="mv '+(i+1===S.pathIdx?"cur":i<S.pathIdx?"past":"")+'">'+(i+1)+" "+ARROW[m]+"</span>"; });
+  if(r.moves.length>LIM) h+='<span class="mv">… +'+(r.moves.length-LIM)+" more</span>";
+  box.innerHTML=h;
+  const cur=box.querySelector(".cur"); if(cur) cur.scrollIntoView({block:"nearest",inline:"nearest"});
+}
+function renderInfo(){
+  const a=ALGORITHMS[S.algo], i=INFO[S.algo];
+  $("algoInfo").innerHTML = '<h2>About the algorithm</h2><p><span class="pill">'+(a.informed?"Informed":"Uninformed")+'</span><b>'+a.label+'</b></p>'+
+    '<p><b>Frontier:</b> '+i.ds+'<br><b>Rule:</b> '+i.rule+'</p>'+
+    '<p><b>Complete:</b> '+i.complete+' · <b>Optimal:</b> '+i.optimal+'<br><b>Complexity:</b> '+i.cx+'</p><p class="small">'+i.note+'</p>';
+}
+function renderHist(){
+  const r=S.result, box=$("hist");
+  if(!r||S.phase==="searching"||S.computing){ if(!r) box.innerHTML="Run a search to see the distribution."; return; }
+  let maxD=0; for(let i=0;i<r.depths.length;i++) if(r.depths[i]>maxD) maxD=r.depths[i];
+  const cnt=new Array(maxD+1).fill(0); for(let i=0;i<r.depths.length;i++) cnt[r.depths[i]]++;
+  const W=560,H=170,pl=40,pb=22,pt=8, bw=(W-pl-6)/cnt.length, mx=cnt.reduce((a,b)=>b>a?b:a,1);
+  let svg='<svg viewBox="0 0 '+W+' '+H+'" width="100%" role="img" aria-label="Nodes expanded per depth">';
+  svg+='<line x1="'+pl+'" y1="'+(H-pb)+'" x2="'+(W-4)+'" y2="'+(H-pb)+'" stroke="var(--border)"/>';
+  svg+='<text x="2" y="'+(pt+8)+'">'+fmt(mx)+'</text><text x="2" y="'+(H-pb)+'">0</text>';
+  cnt.forEach((c,d)=>{ const h=(H-pb-pt)*c/mx; svg+='<rect x="'+(pl+d*bw+1)+'" y="'+(H-pb-h)+'" width="'+Math.max(1,bw-2)+'" height="'+h+'" rx="2" fill="var(--accent)"><title>depth '+d+': '+fmt(c)+' nodes</title></rect>';
+    if(cnt.length<=20||d%5===0) svg+='<text x="'+(pl+d*bw+bw/2)+'" y="'+(H-6)+'" text-anchor="middle">'+d+'</text>'; });
+  svg+='</svg><div class="small">x-axis: depth of the expanded node · y-axis: number of expansions · '+ALGORITHMS[r.algorithm].short+'</div>';
+  box.innerHTML=svg;
+}
+function sampleMax(a){ let m=0; for(let i=0;i<a.length;i++) if(a[i]>m) m=a[i]; return [m]; }
+function renderMini(){
+  const r=S.result;
+  if(r && (S.phase==="searching") && S.step>0) $("miniCur").innerHTML=miniHTML(r.visitedOrder[S.step-1],"Expanding · depth "+r.depths[S.step-1]);
+  else $("miniCur").innerHTML=miniHTML(S.view, S.phase==="playing"||S.phase==="done"||S.phase==="paused" ? "Current board" : "Start state");
+}
+function renderCmp(){
+  const w=$("cmpWrap");
+  if(!S.cmp){ w.innerHTML=""; return; }
+  const best=Math.min(...S.cmp.filter(r=>r.ok).map(r=>r.len), Infinity);
+  let h='<table><tr><th>Algorithm</th><th>Status</th><th>Nodes expanded</th><th>Nodes generated</th><th>Max frontier</th><th>Moves</th><th>Time</th></tr>';
+  S.cmp.forEach(r=>{
+    if(r.running){ h+='<tr><td>'+r.label+'</td><td class="st" colspan="6">Running…</td></tr>'; return; }
+    const isBest=r.ok&&r.len===best;
+    h+='<tr class="'+(isBest?"best":"")+'"><td>'+r.label+'</td><td class="st">'+r.status+'</td><td>'+fmt(r.exp)+'</td><td>'+fmt(r.gen)+'</td><td>'+fmt(r.maxF)+'</td><td>'+(r.ok?r.len+(isBest?' <span class="star">★</span>':''):'N/A')+'</td><td>'+ms(r.time)+'</td></tr>';
+  });
+  w.innerHTML=h+'</table>';
+}
+function renderControls(){
+  const busy = S.phase==="searching"||S.phase==="playing"||S.computing||S.cmpBusy||S.phase==="paused";
+  ["puzzleSel","stateIn","applyBtn","shuffleBtn","randSolBtn","randAnyBtn","resetPuzBtn","modePlay","modeEdit","algoSel","heurSel","depthIn"].forEach(id=>$(id).disabled=busy);
+  $("solveBtn").disabled=busy; $("cmpBtn").disabled=busy;
+  $("pauseBtn").disabled = !(S.phase==="searching"||S.phase==="playing"||S.phase==="paused");
+  $("pauseBtn").textContent = S.phase==="paused" ? "▶ Resume" : "⏸ Pause";
+  $("heurBox").style.display = ALGORITHMS[S.algo].informed ? "" : "none";
+  $("depthBox").style.display = S.algo==="dfs" ? "" : "none";
+  $("modePlay").classList.toggle("on",S.mode==="play"); $("modeEdit").classList.toggle("on",S.mode==="edit");
+  $("modeHint").textContent = S.mode==="play" ? "Click a tile next to the blank to slide it." : "Click one cell, then another, to swap them. Swapping can make the puzzle unsolvable.";
+  $("stateIn").value = S.start;
+}
+function renderProgress(){
+  const r=S.result; let p=0;
+  if(r){
+    if(S.phase==="searching") p=S.step/Math.max(1,r.visitedOrder.length)*100;
+    else if(S.phase==="playing"||S.phase==="paused"&&S.step>=r.visitedOrder.length) p=r.path.length>1? S.pathIdx/(r.path.length-1)*100 : 100;
+    else if(S.phase==="done") p=100;
+  }
+  $("prog").style.width=p+"%";
+}
+function renderAll(){ renderBoard(); renderFacts(); renderStatus(); renderResults(); renderMoves(); renderMini(); renderControls(); renderProgress(); renderInfo(); }
+
+/* ---------- editor ---------- */
+function onCell(i){
+  if(S.phase!=="idle" && S.phase!=="done") return;
+  if(S.computing||S.cmpBusy) return;
+  const s=S.view.split("");
+  if(S.mode==="play"){
+    const z=s.indexOf("0"), zr=(z/3)|0, zc=z%3, r=(i/3)|0, c=i%3;
+    if(Math.abs(zr-r)+Math.abs(zc-c)!==1) return;
+    s[z]=s[i]; s[i]="0"; setPuzzleFromState(s.join(""),"custom"); renderAll();
+  } else {
+    if(S.selCell<0){ S.selCell=i; renderBoard(); return; }
+    if(S.selCell!==i){ const t=s[S.selCell]; s[S.selCell]=s[i]; s[i]=t; S.selCell=-1; setPuzzleFromState(s.join(""),"custom"); }
+    else S.selCell=-1;
+    renderAll();
+  }
+}
+function shuffleFrom(state, n){
+  let s=state, prev=null;
+  for(let k=0;k<n;k++){ const nb=neighbors(s).filter(x=>x.s!==prev); const x=nb[(Math.random()*nb.length)|0]; prev=s; s=x.s; }
+  return s;
+}
+function randomPerm(){ const a="012345678".split(""); for(let i=8;i>0;i--){ const j=(Math.random()*(i+1))|0; [a[i],a[j]]=[a[j],a[i]]; } return a.join(""); }
+
+/* ---------- running a search ---------- */
+function solve(){
+  const errs=validate(S.start);
+  if(errs.length){ S.msg=errs.join(" "); renderAll(); return; }
+  clearRun(); S.computing=true; S.selCell=-1; renderAll();
+  setTimeout(()=>{
+    const a=ALGORITHMS[S.algo];
+    const res=a.fn(S.start,{heuristic:S.heur,depthLimit:S.depthLimit});
+    S.result=res; S.computing=false; S.phase="searching"; S.step=0; S.pathIdx=0; S.view=S.start;
+    renderAll(); tickSearch();
+  },40);
+}
+function tickSearch(){
+  const r=S.result; if(!r||S.phase!=="searching") return;
+  const total=r.visitedOrder.length, dur=Math.max(.5, 7/S.speed);
+  const per=Math.max(1,Math.ceil(total/(dur*60)));
+  const delay= total<=dur*60 ? Math.min(250, dur*1000/Math.max(1,total)) : 16;
+  S.step=Math.min(total,S.step+per);
+  renderResults(); renderMini(); renderProgress();
+  if(S.step>=total){
+    S.timer=setTimeout(()=>{ if(S.phase!=="searching") return; r.found && r.path.length>1 ? beginPlay() : finish(); },350);
+  } else S.timer=setTimeout(tickSearch,delay);
+}
+function beginPlay(){ S.phase="playing"; S.pathIdx=0; renderAll(); S.timer=setTimeout(tickPlay,400); }
+function tickPlay(){
+  const r=S.result; if(!r||S.phase!=="playing") return;
+  S.pathIdx++; S.view=r.path[S.pathIdx];
+  renderBoard(); renderMini(); renderMoves(); renderProgress();
+  if(S.pathIdx>=r.path.length-1){ S.timer=setTimeout(finish,250); return; }
+  const gap=Math.min(1000/(S.speed*1.2), 20000/Math.max(1,r.path.length));
+  S.timer=setTimeout(tickPlay,Math.max(60,gap));
+}
+function finish(){ S.phase="done"; S.timer=null; if(S.result&&S.result.found) S.view=S.result.path[S.result.path.length-1]; renderAll(); renderHist(); }
+let pausedFrom="";
+function togglePause(){
+  if(S.phase==="paused"){ S.phase=pausedFrom; renderAll(); if(S.phase==="searching") tickSearch(); else tickPlay(); }
+  else if(S.phase==="searching"||S.phase==="playing"){ pausedFrom=S.phase; clearTimeout(S.timer); S.phase="paused"; renderAll(); }
+}
+function reset(){
+  clearRun(); S.selCell=-1; renderAll(); $("hist").innerHTML="Run a search to see the distribution.";
+}
+
+/* ---------- comparison ---------- */
+const CMP_SPECS = [
+  {label:"BFS",run:s=>bfs(s)},
+  {label:"DFS",run:(s,o)=>dfs(s,{depthLimit:o.depthLimit}),dyn:true},
+  {label:"UCS",run:s=>ucs(s)},
+  {label:"IDDFS",run:s=>iddfs(s)},
+  {label:"Greedy (Manhattan)",run:s=>greedy(s,{heuristic:"manhattan"})},
+  {label:"A* (Misplaced tiles)",run:s=>astar(s,{heuristic:"misplaced"})},
+  {label:"A* (Manhattan)",run:s=>astar(s,{heuristic:"manhattan"})}
+];
+async function compareAll(){
+  const errs=validate(S.start);
+  if(errs.length){ S.msg=errs.join(" "); renderAll(); return; }
+  clearRun(); S.cmpBusy=true; S.cmp=CMP_SPECS.map(c=>({label:c.dyn?"DFS (limit "+S.depthLimit+")":c.label,running:true}));
+  $("cmpNote").textContent="Running all algorithms on "+S.start+" …"; renderAll(); renderCmp();
+  for(let i=0;i<CMP_SPECS.length;i++){
+    await new Promise(r=>setTimeout(r,30));
+    const r=CMP_SPECS[i].run(S.start,{depthLimit:S.depthLimit});
+    S.cmp[i]={label:S.cmp[i].label,running:false,ok:r.found,status:r.status==="SOLVED"?"Solved":r.status==="NO SOLUTION"?"No solution":r.status==="NODE LIMIT REACHED"?"Node limit":"Depth limit",exp:r.nodesExpanded,gen:r.nodesGenerated,maxF:r.maxFrontier,len:r.pathLength,time:r.timeMs};
+    renderCmp();
+  }
+  S.cmpBusy=false; $("cmpNote").textContent="Start state "+S.start+" · ★ marks the shortest solution found. DFS and IDDFS stop after "+fmt(MAX_EXPANSIONS)+" expansions; the step cost of every move is 1.";
+  renderAll();
+}
+
+/* ---------- events ---------- */
+$("puzzleSel").addEventListener("change",e=>{ const id=e.target.value; if(id==="custom") return; const p=PUZZLES.find(x=>x.id===id); setPuzzleFromState(p.state,id); renderAll(); $("hist").innerHTML="Run a search to see the distribution."; });
+$("applyBtn").addEventListener("click",()=>{ const v=$("stateIn").value.trim(); const errs=validate(v); if(errs.length){ S.msg=errs.join(" "); renderStatus(); return; } setPuzzleFromState(v,"custom"); renderAll(); });
+$("stateIn").addEventListener("keydown",e=>{ if(e.key==="Enter") $("applyBtn").click(); });
+$("shuffleBtn").addEventListener("click",()=>{ setPuzzleFromState(shuffleFrom(S.start,40),"custom"); renderAll(); });
+$("randSolBtn").addEventListener("click",()=>{ setPuzzleFromState(shuffleFrom(GOAL,60),"custom"); renderAll(); });
+$("randAnyBtn").addEventListener("click",()=>{ setPuzzleFromState(randomPerm(),"custom"); renderAll(); });
+$("resetPuzBtn").addEventListener("click",()=>{ const p=PUZZLES.find(x=>x.id===S.puzzleId)||PUZZLES[0]; setPuzzleFromState(p.state,p.id); renderAll(); });
+$("modePlay").addEventListener("click",()=>{ S.mode="play"; S.selCell=-1; renderAll(); });
+$("modeEdit").addEventListener("click",()=>{ S.mode="edit"; S.selCell=-1; renderAll(); });
+$("algoSel").addEventListener("change",e=>{ S.algo=e.target.value; clearRun(); renderAll(); $("hist").innerHTML="Run a search to see the distribution."; });
+$("heurSel").addEventListener("change",e=>{ S.heur=e.target.value; clearRun(); renderAll(); });
+$("depthIn").addEventListener("change",e=>{ let v=parseInt(e.target.value,10); if(!(v>=5)) v=5; if(v>60) v=60; S.depthLimit=v; e.target.value=v; clearRun(); renderAll(); });
+$("speed").addEventListener("input",e=>{ S.speed=+e.target.value; $("speedVal").textContent=S.speed; });
+$("overlay").addEventListener("change",e=>{ S.overlay=e.target.checked; renderBoard(); });
+$("solveBtn").addEventListener("click",solve);
+$("pauseBtn").addEventListener("click",togglePause);
+$("resetBtn").addEventListener("click",reset);
+$("cmpBtn").addEventListener("click",compareAll);
+
+renderAll();
+})();
+</script>
+</body>
+</html>
